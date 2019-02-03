@@ -16,6 +16,8 @@ from __future__ import division
 from __future__ import print_function
 
 import sys
+from os import listdir
+from os.path import isfile, join
 import tensorflow as tf
 import random
 from numpy.random import normal
@@ -25,6 +27,7 @@ import yaml
 from functools import reduce
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import datetime
 
 
 class Config():
@@ -40,7 +43,7 @@ class Config():
         return str(self.config)
     
 
-config = Config('model.yaml')
+
 
 
 
@@ -298,17 +301,19 @@ import uuid
 import re
 
 
-URL = "https://svnweb.freebsd.org/csrg/share/dict/words?view=co&content-type=text/plain"
-fnTrain     = config.value('morse.fnTrain')
-fnAudio     = config.value('morse.fnAudio')
-code_speed  = config.value('morse.code_speed')
-SNR_DB      = config.value('morse.SNR_dB')
-count       = config.value('morse.count')
-length_N    = config.value('morse.length_N')
-word_max_length = config.value('morse.word_max_length')
-words_in_sample = config.value('morse.words_in_sample')
 
-def generate_dataset():
+
+
+def generate_dataset(config):
+    URL = "https://svnweb.freebsd.org/csrg/share/dict/words?view=co&content-type=text/plain"
+    fnTrain     = config.value('morse.fnTrain')
+    fnAudio     = config.value('morse.fnAudio')
+    code_speed  = config.value('morse.code_speed')
+    SNR_DB      = config.value('morse.SNR_dB')
+    count       = config.value('morse.count')
+    length_N    = config.value('morse.length_N')
+    word_max_length = config.value('morse.word_max_length')
+    words_in_sample = config.value('morse.words_in_sample')
     rv = requests.get(URL)
     if rv.status_code == 200:
         with open(fnTrain,'w') as mf:
@@ -320,9 +325,9 @@ def generate_dataset():
                 sample= random.sample(words, words_in_sample)
                 line = ' '.join(sample)
                 phrase = re.sub(r'[\'.&]', '', line)
-                code_speed = random.sample([30],1)
-                SNR_DB = random.sample([10,20,30,40],1)            
-                morse(phrase, audio_file, SNR_DB[0], 600, 8000, code_speed[0], length_N, False)
+                speed = random.sample(code_speed,1)
+                SNR = random.sample(SNR_DB,1)            
+                morse(phrase, audio_file, SNR[0], 600, 8000, speed[0], length_N, False)
                 mf.write(audio_file+' '+phrase+'\n')
                 print(audio_file, phrase)
             print("completed {} files".format(count)) 
@@ -430,7 +435,7 @@ class MorseDataset():
                 continue
             
             lineSplit = line.strip().split(' ')
-            assert len(lineSplit) >= 2
+            assert len(lineSplit) >= 2, "line is {}".format(line)
             
             # filenames: audio/*.wav
             fileNameAudio = lineSplit[0]
@@ -528,21 +533,23 @@ class DecoderType:
 class Model: 
     "minimalistic TF model for Morse Decoder"
 
-    # model constants
-    batchSize = config.value('model.batchSize')  # was 50 
-    imgSize = config.value('model.imgSize')  # was (128,32)
-    maxTextLen =  config.value('model.maxTextLen') # was 32
     
 
-    def __init__(self, charList, decoderType=DecoderType.BestPath, mustRestore=False):
+    def __init__(self, charList, config, decoderType=DecoderType.BestPath, mustRestore=False):
         "init model: add CNN, RNN and CTC and initialize TF"
+
+        # model constants
+        self.batchSize = config.value('model.batchSize')  # was 50 
+        self.imgSize = config.value('model.imgSize')  # was (128,32)
+        self.maxTextLen =  config.value('model.maxTextLen') # was 32
+
         self.charList = charList
         self.decoderType = decoderType
         self.mustRestore = mustRestore
         self.snapID = 0
 
         # input image batch
-        self.inputImgs = tf.placeholder(tf.float32, shape=(None, Model.imgSize[0], Model.imgSize[1]))
+        self.inputImgs = tf.placeholder(tf.float32, shape=(None, self.imgSize[0], self.imgSize[1]))
 
         # setup CNN, RNN and CTC
         self.setupCNN()
@@ -616,7 +623,7 @@ class Model:
         self.loss = tf.reduce_mean(tf.nn.ctc_loss(labels=self.gtTexts, inputs=self.ctcIn3dTBC, sequence_length=self.seqLen, ctc_merge_repeated=True))
 
         # calc loss for each element to compute label probability
-        self.savedCtcInput = tf.placeholder(tf.float32, shape=[Model.maxTextLen, None, len(self.charList) + 1])
+        self.savedCtcInput = tf.placeholder(tf.float32, shape=[self.maxTextLen, None, len(self.charList) + 1])
         self.lossPerElement = tf.nn.ctc_loss(labels=self.gtTexts, inputs=self.savedCtcInput, sequence_length=self.seqLen, ctc_merge_repeated=True)
 
         # decoder: either best path decoding or beam search decoding
@@ -721,7 +728,7 @@ class Model:
         sparse = self.toSparse(batch.gtTexts)
         rate = 0.01 if self.batchesTrained < 10 else (0.001 if self.batchesTrained < 10000 else 0.0001) # decay learning rate
         evalList = [self.optimizer, self.loss]
-        feedDict = {self.inputImgs : batch.imgs, self.gtTexts : sparse , self.seqLen : [Model.maxTextLen] * numBatchElements, self.learningRate : rate}
+        feedDict = {self.inputImgs : batch.imgs, self.gtTexts : sparse , self.seqLen : [self.maxTextLen] * numBatchElements, self.learningRate : rate}
         #print(feedDict)
         (_, lossVal) = self.sess.run(evalList, feedDict)
         self.batchesTrained += 1
@@ -734,7 +741,7 @@ class Model:
         # decode, optionally save RNN output
         numBatchElements = len(batch.imgs)
         evalList = [self.decoder] + ([self.ctcIn3dTBC] if calcProbability else [])
-        feedDict = {self.inputImgs : batch.imgs, self.seqLen : [Model.maxTextLen] * numBatchElements}
+        feedDict = {self.inputImgs : batch.imgs, self.seqLen : [self.maxTextLen] * numBatchElements}
         evalRes = self.sess.run([self.decoder, self.ctcIn3dTBC], feedDict)
         decoded = evalRes[0]
         texts = self.decoderOutputToText(decoded, numBatchElements)
@@ -745,7 +752,7 @@ class Model:
             sparse = self.toSparse(batch.gtTexts) if probabilityOfGT else self.toSparse(texts)
             ctcInput = evalRes[1]
             evalList = self.lossPerElement
-            feedDict = {self.savedCtcInput : ctcInput, self.gtTexts : sparse, self.seqLen : [Model.maxTextLen] * numBatchElements}
+            feedDict = {self.savedCtcInput : ctcInput, self.gtTexts : sparse, self.seqLen : [self.maxTextLen] * numBatchElements}
             lossVals = self.sess.run(evalList, feedDict)
             probs = np.exp(-lossVals)
         print('inferBatch: probs:{} texts:{} '.format(probs, texts))
@@ -770,9 +777,10 @@ def train(model, loader):
     accLoss = []
     accChrErrRate = []
     accWordAccuracy = []
+    start_time = datetime.datetime.now()
     while True:
         epoch += 1
-        print('Epoch:', epoch)
+        print('Epoch: {} Duration:{}'.format(epoch, datetime.datetime.now()-start_time))
 
         # train
         print('Train NN - imgSize',model.imgSize)
@@ -804,6 +812,8 @@ def train(model, loader):
         if noImprovementSince >= earlyStopping:
             print('No more improvement since {} epochs. Training stopped.'.format(earlyStopping))
             break
+    end_time = datetime.datetime.now()
+    print("Total training time was {}".format(end_time-start_time))
     return accLoss, accChrErrRate, accWordAccuracy
 
 
@@ -872,6 +882,7 @@ class FilePaths:
     fnTrain = 'data/'
     fnInfer = 'audio/6db42dd27d414097b2f02c4ca7a800e9.wav'
     fnCorpus = "morseCorpus.txt"
+    fnExperiments = "experiments/"
 
 def infer(model, fnImg):
     "recognize text in image provided by file path"
@@ -892,17 +903,29 @@ def main():
     #parser.add_argument("--beamsearch", help="use beam search instead of best path decoding", action="store_true")
     #parser.add_argument("--wordbeamsearch", help="use word beam search instead of best path decoding", action="store_true")
     parser.add_argument("--generate", help="generate a Morse dataset of random words", action="store_true")
+    parser.add_argument("--experiments", help="generate a set of experiments using config files", action="store_true")
     parser.add_argument("-f", dest="filename", required=False,
                     help="input audio file ", metavar="FILE",
                     type=lambda x: is_valid_file(parser, x))
    
     args = parser.parse_args()
 
+    config = Config('model.yaml') #read configs for current training/validation/inference job
+
     decoderType = DecoderType.BestPath
     #if args.beamsearch:
     #    decoderType = DecoderType.BeamSearch
     #elif args.wordbeamsearch:
     #    decoderType = DecoderType.WordBeamSearch
+    if args.experiments:
+
+        experiments = [f for f in listdir(FilePaths.fnExperiments) if isfile(join(FilePaths.fnExperiments, f))]
+        for filename in experiments:
+            config = Config(filename)
+            decoderType = DecoderType.BestPath
+            loader = MorseDataset("./", config.value("model.batchSize"), config.value("model.imgSize"), config.value("model.maxTextLen"))
+            model = Model(loader.charList, config, decoderType)
+            loss, charErrorRate, wordAccuracy = train(model, loader)
 
     # train or validate on IAM dataset    
     if args.train or args.validate:
@@ -910,7 +933,7 @@ def main():
         #loader = DataLoader(FilePaths.fnTrain, Model.batchSize, Model.imgSize, Model.maxTextLen)
         #loader = DataLoader(FilePaths.fnTrain, Model.batchSize, Model.imgSize, Model.maxTextLen)
         decoderType = DecoderType.BestPath
-        loader = MorseDataset("./", Model.batchSize, Model.imgSize, Model.maxTextLen)
+        loader = MorseDataset("./", config.value("model.batchSize"), config.value("model.imgSize"), config.value("model.maxTextLen"))
 
         # save characters of model for inference mode
         open(FilePaths.fnCharList, 'w').write(str().join(loader.charList))
@@ -920,7 +943,7 @@ def main():
         
         # execute training or validation
         if args.train:
-            model = Model(loader.charList, decoderType)
+            model = Model(loader.charList, config, decoderType)
             loss, charErrorRate, wordAccuracy = train(model, loader)
             plt.figure(figsize=(20,10))
             plt.subplot(3, 1, 1)
@@ -934,15 +957,15 @@ def main():
             plt.plot(loss)
             plt.show()
         elif args.validate:
-            model = Model(loader.charList, decoderType, mustRestore=True)
+            model = Model(loader.charList, config, decoderType, mustRestore=True)
             validate(model, loader)
     elif args.generate:
-        generate_dataset()
+        generate_dataset(config)
 
     # infer text on test audio file
     else:
         print(open(FilePaths.fnAccuracy).read())
-        model = Model(open(FilePaths.fnCharList).read(), decoderType, mustRestore=True)
+        model = Model(open(FilePaths.fnCharList).read(), config, decoderType, mustRestore=True)
         infer(model, args.filename)
 
 

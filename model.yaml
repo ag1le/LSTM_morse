@@ -3,20 +3,26 @@ model:
     batchSize: 100  
     imgSize: !!python/tuple [128,32] 
     maxTextLen: 32
-    earlyStopping: 20 
+    earlyStopping: 5
 
 morse:
     fnTrain:    "morsewords.txt"
     fnAudio:    "audio/"
     count:      5000
-    SNR_dB:     20
+    SNR_dB:     
+      - 20
+      - 30
+      - 40
     f_code:     600
     Fs:         8000
-    code_speed: 30
+    code_speed: 
+      - 30
+      - 25
+      - 20
     length_N:   65000
     play_sound: False
     word_max_length: 5
-    words_in_sample: 2
+    words_in_sample: 1
 
 experiment:
     modelDir:   "model/"
