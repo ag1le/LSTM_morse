@@ -1,5 +1,6 @@
 model:
     # model constants
+    name: "model-2019-02-03 "
     batchSize: 100  
     imgSize: !!python/tuple [128,32] 
     maxTextLen: 32
@@ -8,17 +9,21 @@ model:
 morse:
     fnTrain:    "morsewords.txt"
     fnAudio:    "audio/"
-    count:      5000
-    SNR_dB:     
-      - 20
-      - 30
-      - 40
+    count:      10000
+    SNR_dB:
+      - 6    
+      - 12
+      - 24
+      - 48
     f_code:     600
     Fs:         8000
     code_speed: 
       - 30
       - 25
       - 20
+      - 40
+      - 50 
+      - 15 
     length_N:   65000
     play_sound: False
     word_max_length: 5

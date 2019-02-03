@@ -542,6 +542,7 @@ class Model:
         self.batchSize = config.value('model.batchSize')  # was 50 
         self.imgSize = config.value('model.imgSize')  # was (128,32)
         self.maxTextLen =  config.value('model.maxTextLen') # was 32
+        self.earlyStopping = config.value('model.earlyStopping') #was 5
 
         self.charList = charList
         self.decoderType = decoderType
@@ -773,7 +774,7 @@ def train(model, loader):
     epoch = 0 # number of training epochs since start
     bestCharErrorRate = float('inf') # best valdiation character error rate
     noImprovementSince = 0 # number of epochs no improvement of character error rate occured
-    earlyStopping = 20 # stop training after this number of epochs without improvement
+    earlyStopping = model.earlyStopping  # stop training after this number of epochs without improvement
     accLoss = []
     accChrErrRate = []
     accWordAccuracy = []
@@ -803,7 +804,7 @@ def train(model, loader):
             bestCharErrorRate = charErrorRate
             noImprovementSince = 0
             model.save()
-            open(FilePaths.fnAccuracy, 'w').write('Validation character error rate of saved model: {:4.1f}%'.format(charErrorRate*100.0))
+            open(FilePaths.fnAccuracy, 'w').write('Validation character error rate of saved model: {:4.1f}% word accuracy: {:4.1f}'.format(charErrorRate*100.0, wordAccuracy*100.))
         else:
             noImprovementSince += 1
             print('Character error rate {:4.1f}% not improved in last {} epochs'.format(charErrorRate*100., noImprovementSince))
@@ -886,7 +887,7 @@ class FilePaths:
 
 def infer(model, fnImg):
     "recognize text in image provided by file path"
-    img = create_image(fnImg, Model.imgSize)
+    img = create_image(fnImg, model.imgSize)
     plt.imshow(img,cmap = cm.Greys_r)
     batch = Batch(None, [img])
     (recognized, probability) = model.inferBatch(batch, True)
