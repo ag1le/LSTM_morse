@@ -16,14 +16,14 @@ from __future__ import division
 from __future__ import print_function
 
 import sys
-import matplotlib.pyplot as plt
 import tensorflow as tf
 import random
 from numpy.random import normal
 import numpy as np
-from morse import Morse
+#from morse import Morse
 import yaml
 from functools import reduce
+import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
 
