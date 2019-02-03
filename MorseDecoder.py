@@ -768,6 +768,8 @@ def train(model, loader):
     noImprovementSince = 0 # number of epochs no improvement of character error rate occured
     earlyStopping = 20 # stop training after this number of epochs without improvement
     accLoss = []
+    accChrErrRate = []
+    accWordAccuracy = []
     while True:
         epoch += 1
         print('Epoch:', epoch)
@@ -783,24 +785,26 @@ def train(model, loader):
             accLoss.append(loss)
 
         # validate
-        charErrorRate = validate(model, loader)
+        charErrorRate, wordAccuracy = validate(model, loader)
+        accChrErrRate.append(charErrorRate)
+        accWordAccuracy.append(wordAccuracy)
         
         # if best validation accuracy so far, save model parameters
         if charErrorRate < bestCharErrorRate:
-            print('Character error rate {:4.1f}% improved, save model'.format(charErrorRate))
+            print('Character error rate {:4.1f}% improved, save model'.format(charErrorRate*100.))
             bestCharErrorRate = charErrorRate
             noImprovementSince = 0
             model.save()
             open(FilePaths.fnAccuracy, 'w').write('Validation character error rate of saved model: {:4.1f}%'.format(charErrorRate*100.0))
         else:
-            print('Character error rate {:4.1f}% not improved'.format(charErrorRate))
             noImprovementSince += 1
+            print('Character error rate {:4.1f}% not improved in last {} epochs'.format(charErrorRate*100., noImprovementSince))
 
         # stop training if no more improvement in the last x epochs
         if noImprovementSince >= earlyStopping:
             print('No more improvement since {} epochs. Training stopped.'.format(earlyStopping))
             break
-    return accLoss
+    return accLoss, accChrErrRate, accWordAccuracy
 
 
 # In[6]:
@@ -841,7 +845,7 @@ def validate(model, loader):
         print('numCharTotal:{} numWordTotal:{}'.format(numCharTotal,numWordTotal))
     except:
         print('numCharTotal:{} numWordTotal:{}'.format(numCharTotal,numWordTotal))
-    return charErrorRate
+    return charErrorRate, wordAccuracy
 
 
 
@@ -885,8 +889,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", help="train the NN", action="store_true")
     parser.add_argument("--validate", help="validate the NN", action="store_true")
-    parser.add_argument("--beamsearch", help="use beam search instead of best path decoding", action="store_true")
-    parser.add_argument("--wordbeamsearch", help="use word beam search instead of best path decoding", action="store_true")
+    #parser.add_argument("--beamsearch", help="use beam search instead of best path decoding", action="store_true")
+    #parser.add_argument("--wordbeamsearch", help="use word beam search instead of best path decoding", action="store_true")
     parser.add_argument("--generate", help="generate a Morse dataset of random words", action="store_true")
     parser.add_argument("-f", dest="filename", required=False,
                     help="input audio file ", metavar="FILE",
@@ -895,10 +899,10 @@ def main():
     args = parser.parse_args()
 
     decoderType = DecoderType.BestPath
-    if args.beamsearch:
-        decoderType = DecoderType.BeamSearch
-    elif args.wordbeamsearch:
-        decoderType = DecoderType.WordBeamSearch
+    #if args.beamsearch:
+    #    decoderType = DecoderType.BeamSearch
+    #elif args.wordbeamsearch:
+    #    decoderType = DecoderType.WordBeamSearch
 
     # train or validate on IAM dataset    
     if args.train or args.validate:
@@ -917,7 +921,16 @@ def main():
         # execute training or validation
         if args.train:
             model = Model(loader.charList, decoderType)
-            loss = train(model, loader)
+            loss, charErrorRate, wordAccuracy = train(model, loader)
+            plt.figure(figsize=(20,10))
+            plt.subplot(3, 1, 1)
+            plt.title("Character Error Rate")
+            plt.plot(charErrorRate)
+            plt.subplot(3, 1, 2)
+            plt.title("Word Accuracy")
+            plt.plot(wordAccuracy)
+            plt.subplot(3, 1, 3)
+            plt.title("Loss")
             plt.plot(loss)
             plt.show()
         elif args.validate:
