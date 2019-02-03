@@ -1,0 +1,27 @@
+model:
+    # model constants
+    batchSize: 100  
+    imgSize: !!python/tuple [128,32] 
+    maxTextLen: 32
+    earlyStopping: 20 
+
+morse:
+    fnTrain:    "morsewords.txt"
+    fnAudio:    "audio/"
+    count:      5000
+    SNR_dB:     20
+    f_code:     600
+    Fs:         8000
+    code_speed: 30
+    length_N:   65000
+    play_sound: False
+    word_max_length: 5
+    words_in_sample: 2
+
+experiment:
+    modelDir:   "model/"
+    fnAccuracy: "model/accuracy.txt"
+    fnTrain:    "model/morsewords.txt"
+    fnInfer:    "model/test.png"
+    fnCorpus:   "model/corpus.txt"
+    fnCharList: "model/charList.txt"
