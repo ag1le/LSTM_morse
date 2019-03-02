@@ -1,30 +1,33 @@
 model:
     # model constants
-    name: "model-2019-02-03 "
-    batchSize: 100  
+    name: "model-snr-40--10/"
+    batchSize: 500  
     imgSize: !!python/tuple [128,32] 
     maxTextLen: 32
     earlyStopping: 5
 
 morse:
-    fnTrain:    "morsewords.txt"
-    fnAudio:    "audio/"
-    count:      10000
-    SNR_dB:
-      - 6    
-      - 12
-      - 24
-      - 48
+    fnTrain:    "model-snr-40--10/morsewords.txt"
+    fnAudio:    "model-snr-40--10/"
+    count:      50000
+    SNR_dB:     
+      - 40
+      - 30
+      - 20
+      - 10
+      - 6
+      - 3
+      - -3
+      - -6
+      - -8
+      - -10
     f_code:     600
     Fs:         8000
     code_speed: 
+      - 40
       - 30
       - 25
-      - 20
-      - 40
-      - 50 
-      - 15 
-    length_N:   65000
+    length_seconds:   4
     play_sound: False
     word_max_length: 5
     words_in_sample: 1

@@ -16,6 +16,7 @@ from __future__ import division
 from __future__ import print_function
 
 import sys
+import os
 from os import listdir
 from os.path import isfile, join
 import tensorflow as tf
@@ -58,12 +59,18 @@ from scipy.signal import butter, filtfilt, periodogram
 from peakdetect import peakdet  # download peakdetect from # https://gist.github.com/endolith/250860
 
 def find_peak(fname):
-    # Find the signal frequency and maximum value
+    """Find the signal frequency and maximum value"""
+    #print("find_peak",fname)
     Fs, x = wavfile.read(fname)
     f,s = periodogram(x, Fs,'blackman',8192,'linear', False, scaling='spectrum')
-    threshold = max(s)*0.9  # only 0.4 ... 1.0 of max value freq peaks included
+    threshold = max(s)*0.8  # only 0.4 ... 1.0 of max value freq peaks included
     maxtab, mintab = peakdet(abs(s[0:int(len(s)/2-1)]), threshold,f[0:int(len(f)/2-1)] )
-    return maxtab[0,0]
+    try:
+        val = maxtab[0,0]
+    except:
+        print("Error: {}".format(maxtab))
+        val = 600.
+    return val
 
 # Fs should be 8000 Hz 
 # with decimation down to 125 Hz we get 8 msec / sample
@@ -72,7 +79,7 @@ def find_peak(fname):
 # word 'PARIS' is 50 Tdits
 
 def demodulate(x, Fs, freq):
-    # demodulate audio signal with known CW frequency 
+    """return decimated and demodulated audio signal envelope at a known CW frequency """
     t = np.arange(len(x))/ float(Fs)
     mixed =  x*((1 + np.sin(2*np.pi*freq*t))/2 )
 
@@ -91,6 +98,7 @@ def demodulate(x, Fs, freq):
     return o
 
 def process_audio_file(fname,x,y, tone):
+    """return demodulated clip from audiofile from x to y seconds at tone frequency,  as well as duration of audio file in seconds"""
     Fs, signal = wavfile.read(fname)
     dur = len(signal)/Fs
     o = demodulate(signal[(Fs*(x)):Fs*(x+y)], Fs, tone)
@@ -139,7 +147,7 @@ from scipy.io.wavfile import write
 import matplotlib.pyplot as plt 
 
 
-def morse(text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, length_N=None, play_sound=True):
+def morse(text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, length_seconds=4, total_seconds=8,play_sound=True):
     '''
     # MORSE converts text to playable morse code in wav format
     #
@@ -230,8 +238,32 @@ def morse(text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, l
       }
     text = text.upper()
 
+    # dit duration in seconds
+    dit = 1.2/code_speed
+    # calculate the length of text in dit units
+    txt_dits = MorseCode(text).len
+
+    # calculate total text length in seconds
+    tot_len = txt_dits * dit
+    assert length_seconds - tot_len > 0
+
+    # calculate how many dits will fit in the 
+    pad_dits = int((length_seconds - tot_len)/dit)
+    
+    # pad with random space to fit proper length
+    morsecode = []
+    pad = random.randint(0,pad_dits)
+    #print("pad_dits:{} pad:{}".format(pad_dits,pad))
+    for i in range(pad):
+        morsecode = np.concatenate((morsecode,ssp))
+
+
     # start with pause (7 dit lengths)
-    morsecode= np.concatenate((ssp,ssp,ssp,ssp,ssp,ssp,ssp))
+    #morsecode= np.concatenate((ssp,ssp,ssp,ssp,ssp,ssp,ssp))
+
+
+
+    # concatenate all characters 
     for ch in text:
         if ch == ' ':
             morsecode = np.concatenate((morsecode, ssp,ssp,ssp,ssp))
@@ -243,8 +275,8 @@ def morse(text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, l
         
     #morsecode = np.concatenate((morsecode, lsp))
 
-    if length_N:
-        append_length = length_N - len(morsecode)
+    if total_seconds:
+        append_length = Fs*total_seconds - len(morsecode)
         if (append_length < 0):
             print("Length {} isn't large enough for your message, it must be > {}.\n".format(length_N,len(morsecode)))
             return morsecode
@@ -254,6 +286,7 @@ def morse(text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, l
     # end with pause (14 dit lengths)
     morsecode = np.concatenate((morsecode,ssp,ssp,ssp,ssp,ssp,ssp,ssp,ssp,ssp,ssp,ssp,ssp,ssp,ssp))
 
+    
     #noise = randn(size(morsecode)), 
     #[noisy,noise] = addnoise(morsecode,noise,snr),
     
@@ -287,10 +320,102 @@ def morse(text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, l
     if file_name:
         write(file_name, Fs, morsecode)
     if play_sound:
-        #sd.play(morsecode, Fs)
+        sd.play(morsecode, Fs)
         pass
     return morsecode
     
+class MorseCode():
+    def __init__(self, text):
+        self.code = {
+             '!': '-.-.--',
+             '$': '...-..-',
+             "'": '.----.',
+             '(': '-.--.',
+             ')': '-.--.-',
+             ',': '--..--',
+             '-': '-....-',
+             '.': '.-.-.-',
+             '/': '-..-.',
+             '0': '-----',
+             '1': '.----',
+             '2': '..---',
+             '3': '...--',
+             '4': '....-',
+             '5': '.....',
+             '6': '-....',
+             '7': '--...',
+             '8': '---..',
+             '9': '----.',
+             ':': '---...',
+             ';': '-.-.-.',
+             '>': '.-.-.',     #<AR>
+             '<': '.-...',     # <AS>
+             '{': '....--',    #<HM>
+             '&': '..-.-',     #<INT>
+             '%': '...-.-',    #<SK>
+             '}': '...-.',     #<VE>
+             '=': '-...-',     #<BT>
+             '?': '..--..',
+             '@': '.--.-.',
+             'A': '.-',
+             'B': '-...',
+             'C': '-.-.',
+             'D': '-..',
+             'E': '.',
+             'F': '..-.',
+             'G': '--.',
+             'H': '....',
+             'I': '..',
+             'J': '.---',
+             'K': '-.-',
+             'L': '.-..',
+             'M': '--',
+             'N': '-.',
+             'O': '---',
+             'P': '.--.',
+             'Q': '--.-',
+             'R': '.-.',
+             'S': '...',
+             'T': '-',
+             'U': '..-',
+             'V': '...-',
+             'W': '.--',
+             'X': '-..-',
+             'Y': '-.--',
+             'Z': '--..',
+             '\\': '.-..-.',
+             '_': '..--.-',
+             '~': '.-.-',
+             ' ': '_'}
+        self.len = self.len_str(text)
+
+    def len_dits(self, cws):
+        """Return the length of CW string in dit units, including spaces. """
+        val = 0
+        for ch in cws:
+            if ch == '.': # dit len  
+                val += 1
+            if ch == '-': # dah len 
+                val += 3
+            if ch=='_':   #  word space
+                val += 4
+            val += 1 # el space
+        val += 2     # char space = 3  (el space +2)
+        return val
+        
+    def len_chr(self, ch):
+        s = self.code[ch]
+        #print(s)
+        return self.len_dits(s)
+    
+    def len_str(self, s):
+        i = 0 
+        for ch in s:
+            val = self.len_chr(ch)
+            i += val
+            #print(ch, val, i)
+        return i-3  #remove last char space at end of string
+
 # 24487 words in alphabetical order 
 # https://svnweb.freebsd.org/csrg/share/dict/words?view=co&content-type=text/plain 
 #
@@ -305,31 +430,41 @@ import re
 
 
 def generate_dataset(config):
+    "generate audio dataset from a dictionary of random words"
     URL = "https://svnweb.freebsd.org/csrg/share/dict/words?view=co&content-type=text/plain"
+    filePath    = config.value('model.name')
     fnTrain     = config.value('morse.fnTrain')
     fnAudio     = config.value('morse.fnAudio')
     code_speed  = config.value('morse.code_speed')
     SNR_DB      = config.value('morse.SNR_dB')
     count       = config.value('morse.count')
-    length_N    = config.value('morse.length_N')
+    length_seconds    = config.value('morse.length_seconds')
     word_max_length = config.value('morse.word_max_length')
     words_in_sample = config.value('morse.words_in_sample')
+    print("SNR_DB:{}".format(SNR_DB))
     rv = requests.get(URL)
     if rv.status_code == 200:
+        try: 
+            os.makedirs(filePath)
+        except OSError:
+            print("Error: cannot create ", filePath)
+
         with open(fnTrain,'w') as mf:
             words = rv.text.split("\n")
             wordcount = len(words)
             words = [w.upper() for w in words if len(w) <= word_max_length]
-            for i in range(count):
-                audio_file = fnAudio+uuid.uuid4().hex+".wav"
+            for i in range(count): # count of samples to generate 
                 sample= random.sample(words, words_in_sample)
                 line = ' '.join(sample)
                 phrase = re.sub(r'[\'.&]', '', line)
+                if len(phrase) <= 1:
+                    continue
                 speed = random.sample(code_speed,1)
-                SNR = random.sample(SNR_DB,1)            
-                morse(phrase, audio_file, SNR[0], 600, 8000, speed[0], length_N, False)
+                SNR = random.sample(SNR_DB,1)
+                audio_file = "{}SNR{}WPM{}-{}-{}.wav".format(fnAudio, SNR[0], speed[0], phrase, uuid.uuid4().hex)      
+                morse(phrase, audio_file, SNR[0], 600, 8000, speed[0], length_seconds, 8, False)
                 mf.write(audio_file+' '+phrase+'\n')
-                print(audio_file, phrase)
+                #print(audio_file, phrase)
             print("completed {} files".format(count)) 
 
 
@@ -350,7 +485,7 @@ def create_image(filename, imgSize, dataAugmentation=False):
     
     # get image name from audio file name - assumes 'audio/filename.wav' format
     name = filename.split('/')
-    imgname = "image/"+name[1]+".png"
+    imgname = name[0]+'/'+name[1]+".png"
     
     # Load  image in grayscale if exists
     img = cv2.imread(imgname,0)
@@ -413,18 +548,26 @@ def create_image(filename, imgSize, dataAugmentation=False):
 
 class MorseDataset():
 
-    def __init__(self, filePath, batchSize, imgSize, maxTextLen):
+    def __init__(self, config):
         "loader for dataset at given location, preprocess images and text according to parameters"
-
-        assert filePath[-1]=='/'
-
+        # filePath, batchSize, imgSize, maxTextLen 
+        self.filePath = config.value("model.name")
+        assert self.filePath[-1]=='/'
+        self.batchSize = config.value("model.batchSize")
+        self.imgSize = config.value("model.imgSize")
+        self.maxTextLen = config.value("model.maxTextLen")
+        self.samples = []
         self.dataAugmentation = False
         self.currIdx = 0
-        self.batchSize = batchSize
-        self.imgSize = imgSize
-        self.samples = []
+
+        try: 
+            os.makedirs(self.filePath)
+        except OSError:
+            print("Error: cannot create ", self.filePath)
+            #if not os.path.isdir(filePath):
+            #    raise
     
-        f=open(filePath+'morsewords.txt')
+        f=open(self.filePath+'morsewords.txt','r')
         chars = set()
         bad_samples = []
 
@@ -443,7 +586,7 @@ class MorseDataset():
             # Ground Truth text - open files and append to samples
             #
 
-            gtText = self.truncateLabel(' '.join(lineSplit[1:]), maxTextLen)
+            gtText = self.truncateLabel(' '.join(lineSplit[1:]), self.maxTextLen)
             print(gtText)
             chars = chars.union(set(list(gtText)))
 
@@ -539,6 +682,7 @@ class Model:
         "init model: add CNN, RNN and CTC and initialize TF"
 
         # model constants
+        self.modelDir = config.value('model.name') 
         self.batchSize = config.value('model.batchSize')  # was 50 
         self.imgSize = config.value('model.imgSize')  # was (128,32)
         self.maxTextLen =  config.value('model.maxTextLen') # was 32
@@ -563,11 +707,13 @@ class Model:
         self.optimizer = tf.train.RMSPropOptimizer(self.learningRate).minimize(self.loss)
 
         # initialize TF
+
         (self.sess, self.saver) = self.setupTF()
 
             
     def setupCNN(self):
         "create CNN layers and return output of these layers"
+
         cnnIn4d = tf.expand_dims(input=self.inputImgs, axis=3)
 
         # list of parameters for the layers
@@ -638,8 +784,8 @@ class Model:
 
             # prepare information about language (dictionary, characters in dataset, characters forming words) 
             chars = str().join(self.charList)
-            wordChars = open('model/wordCharList.txt').read().splitlines()[0]
-            corpus = open('data/corpus.txt').read()
+            wordChars = open(self.modelDir+'wordCharList.txt').read().splitlines()[0]
+            corpus = open(self.modelDir+'corpus.txt').read()
 
             # decode using the "Words" mode of word beam search
             self.decoder = word_beam_search_module.word_beam_search(tf.nn.softmax(self.ctcIn3dTBC, dim=2), 50, 'Words', 0.0, corpus.encode('utf8'), chars.encode('utf8'), wordChars.encode('utf8'))
@@ -653,12 +799,11 @@ class Model:
         sess=tf.Session() # TF session
 
         saver = tf.train.Saver(max_to_keep=1) # saver saves model to file
-        modelDir = 'model/'
-        latestSnapshot = tf.train.latest_checkpoint(modelDir) # is there a saved model?
+        latestSnapshot = tf.train.latest_checkpoint(self.modelDir) # is there a saved model?
 
         # if model must be restored (for inference), there must be a snapshot
         if self.mustRestore and not latestSnapshot:
-            raise Exception('No saved model found in: ' + modelDir)
+            raise Exception('No saved model found in: ' + self.modelDir)
 
         # load saved model if available
         if latestSnapshot:
@@ -756,14 +901,14 @@ class Model:
             feedDict = {self.savedCtcInput : ctcInput, self.gtTexts : sparse, self.seqLen : [self.maxTextLen] * numBatchElements}
             lossVals = self.sess.run(evalList, feedDict)
             probs = np.exp(-lossVals)
-        print('inferBatch: probs:{} texts:{} '.format(probs, texts))
+        #print('inferBatch: probs:{} texts:{} '.format(probs, texts))
         return (texts, probs)
     
 
     def save(self):
         "save model to file"
         self.snapID += 1
-        self.saver.save(self.sess, 'model/snapshot', global_step=self.snapID)
+        self.saver.save(self.sess, self.modelDir+'snapshot', global_step=self.snapID)
  
 
 
@@ -831,6 +976,7 @@ def validate(model, loader):
     numCharTotal = 0
     numWordOK = 0
     numWordTotal = 0
+    wordAccuracy = 0
     while loader.hasNext():
         iterInfo = loader.getIteratorInfo()
         print('Batch:', iterInfo[0],'/', iterInfo[1])
@@ -884,6 +1030,7 @@ class FilePaths:
     fnInfer = 'audio/6db42dd27d414097b2f02c4ca7a800e9.wav'
     fnCorpus = "morseCorpus.txt"
     fnExperiments = "experiments/"
+    fnResults = "results/result.txt"
 
 def infer(model, fnImg):
     "recognize text in image provided by file path"
@@ -895,6 +1042,30 @@ def infer(model, fnImg):
     print('Probability:', probability[0])
     print(recognized)
    
+def infer_file(model, fname):
+    sample = 4 
+    start = 0
+    tone = find_peak(fname)
+    o,dur = process_audio_file(fname,start,sample, tone)
+    while start < (dur - sample):
+        print(start,dur)
+        im = o[0::1].reshape(1,256)
+        im = im*256.
+        img = cv2.resize(im, model.imgSize, interpolation = cv2.INTER_AREA)
+        img = cv2.transpose(img)
+        batch = Batch(None, [img])
+        start_time = datetime.datetime.now()
+        (recognized, probability) = model.inferBatch(batch, True)
+        stop_time = datetime.datetime.now()
+        if probability[0] > 0.0005:
+            print('Recognized:', '"' + recognized[0] + '"')
+            print('Probability:', probability[0])
+            print('Duration:{}'.format(stop_time-start_time))
+        start += 2
+        o,dur = process_audio_file(fname,start,sample, tone)
+
+ 
+
 def main():
     "main function"
     # optional command line args
@@ -921,13 +1092,19 @@ def main():
     if args.experiments:
 
         experiments = [f for f in listdir(FilePaths.fnExperiments) if isfile(join(FilePaths.fnExperiments, f))]
+        print(experiments)
         for filename in experiments:
-            config = Config(filename)
+            tf.reset_default_graph()
+            config = Config(FilePaths.fnExperiments+filename)
+            generate_dataset(config)
             decoderType = DecoderType.BestPath
-            loader = MorseDataset("./", config.value("model.batchSize"), config.value("model.imgSize"), config.value("model.maxTextLen"))
+            loader = MorseDataset(config)
             model = Model(loader.charList, config, decoderType)
             loss, charErrorRate, wordAccuracy = train(model, loader)
-
+            with open(FilePaths.fnResults, 'a+') as fr:
+                fr.write("\nexperiment:{} loss:{} charErrorRate:{} wordAccuracy:{}".format(filename, min(loss), min(charErrorRate), max(wordAccuracy)))
+            tf.reset_default_graph()
+        return
     # train or validate on IAM dataset    
     if args.train or args.validate:
         # load training data, create TF model
@@ -965,9 +1142,12 @@ def main():
 
     # infer text on test audio file
     else:
-        print(open(FilePaths.fnAccuracy).read())
+        config = Config('model.yaml')
+        #print(open(FilePaths.fnAccuracy).read())
+        start_time = datetime.datetime.now()
         model = Model(open(FilePaths.fnCharList).read(), config, decoderType, mustRestore=True)
-        infer(model, args.filename)
+        print("Loading model took:{}".format(datetime.datetime.now()-start_time))
+        infer_file(model, args.filename)
 
 
 if __name__ == "__main__":
