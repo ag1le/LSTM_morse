@@ -84,6 +84,7 @@ class Morse():
         self.data = []
         self.labels = []
         self.seqlen = []
+        self.chrs = []
         for i in range(n_samples):
             ch = self.text[i]
             #print( ch)
@@ -92,6 +93,7 @@ class Morse():
             self.data.append(s)
             self.labels.append(self.class_labels(ch))
             self.seqlen.append(lenght)
+            self.chrs.append(ch)
             
         self.batch_id = 0    
 
