@@ -1,7 +1,6 @@
 import yaml
 from functools import reduce
 
-print("in Config.py")
 
 class Config():
     """ reads YAML config file. Use config.value('key') to get the corresponding value """

@@ -31,6 +31,7 @@ import matplotlib.cm as cm
 import datetime
 
 
+
 class Config():
 
     def __init__(self, file_name): 
@@ -43,9 +44,6 @@ class Config():
     def __repr__(self):
         return str(self.config)
     
-
-
-
 
 
 
@@ -101,7 +99,25 @@ def process_audio_file(fname,x,y, tone):
     """return demodulated clip from audiofile from x to y seconds at tone frequency,  as well as duration of audio file in seconds"""
     Fs, signal = wavfile.read(fname)
     dur = len(signal)/Fs
-    o = demodulate(signal[(Fs*(x)):Fs*(x+y)], Fs, tone)
+    o = demodulate(signal[int(Fs*(x)):int(Fs*(x+y))], Fs, tone)
+    #print("Fs:{} total duration:{} sec start at:{} seconds, get first {} seconds".format(Fs, dur,x,y))
+    return o, dur
+
+def process_audio_file2(fname,x,y, tone):
+    """return demodulated clip from audiofile from x to y seconds at tone frequency,  as well as duration of audio file in seconds"""
+    Fs, signal = wavfile.read(fname)
+    dur = len(signal)/Fs
+    if y - x < 4.0:
+        end = x + 4.0
+        xi = int(Fs*x)
+        yi = int(Fs*y)
+        ei = int(Fs*end)
+        pad = np.zeros(ei-yi)
+        print(f"dur:{dur}x:{x},y:{y}, end:{end}, xi:{xi}, yi:{yi}, ei:{ei}")
+        signal = np.insert(signal, slice(yi, ei), pad)
+        y = end
+        
+    o = demodulate(signal[int(Fs*(x)):int(Fs*(x+y))], Fs, tone)
     #print("Fs:{} total duration:{} sec start at:{} seconds, get first {} seconds".format(Fs, dur,x,y))
     return o, dur
 
@@ -225,6 +241,7 @@ def morse(text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, l
         ",": np.concatenate((Dah,ssp,Dah,ssp,Dit,ssp,Dit,ssp,Dah,ssp,Dah)),
         "?": np.concatenate((Dit,ssp,Dit,ssp,Dah,ssp,Dah,ssp,Dit,ssp,Dit)),
         "/": np.concatenate((Dah,ssp,Dit,ssp,Dit,ssp,Dah,ssp,Dit)),
+        "=": np.concatenate((Dah,ssp,Dit,ssp,Dit,ssp,Dit,ssp,Dah)),
         "1": np.concatenate((Dit,ssp,Dah,ssp,Dah,ssp,Dah,ssp,Dah)),
         "2": np.concatenate((Dit,ssp,Dit,ssp,Dah,ssp,Dah,ssp,Dah)),
         "3": np.concatenate((Dit,ssp,Dit,ssp,Dit,ssp,Dah,ssp,Dah)),
@@ -484,8 +501,8 @@ class Batch:
 def create_image(filename, imgSize, dataAugmentation=False):
     
     # get image name from audio file name - assumes 'audio/filename.wav' format
-    name = filename.split('/')
-    imgname = name[0]+'/'+name[1]+".png"
+    #name = filename.split('/')
+    imgname = filename+".png"
     
     # Load  image in grayscale if exists
     img = cv2.imread(imgname,0)
@@ -551,8 +568,8 @@ class MorseDataset():
     def __init__(self, config):
         "loader for dataset at given location, preprocess images and text according to parameters"
         # filePath, batchSize, imgSize, maxTextLen 
-        self.filePath = config.value("model.name")
-        assert self.filePath[-1]=='/'
+        self.filePath = config.value("model.directory")
+        #assert self.filePath[-1]=='/'
         self.batchSize = config.value("model.batchSize")
         self.imgSize = config.value("model.imgSize")
         self.maxTextLen = config.value("model.maxTextLen")
@@ -566,8 +583,8 @@ class MorseDataset():
             print("Error: cannot create ", self.filePath)
             #if not os.path.isdir(filePath):
             #    raise
-    
-        f=open(self.filePath+'morsewords.txt','r')
+        print(f"MorseDataset: loading {config.value('morse.fnTrain')}")
+        f=open(config.value('morse.fnTrain'),'r')
         chars = set()
         bad_samples = []
 
@@ -587,6 +604,7 @@ class MorseDataset():
             #
 
             gtText = self.truncateLabel(' '.join(lineSplit[1:]), self.maxTextLen)
+            gtText = gtText +' '
             print(gtText)
             chars = chars.union(set(list(gtText)))
 
@@ -612,6 +630,9 @@ class MorseDataset():
 
         # list of all chars in dataset
         self.charList = sorted(list(chars))
+        file_name = config.value("experiment.fnCharList")
+        print(f"file:{file_name}")
+        open(file_name, 'w').write(str().join(self.charList))
 
     def truncateLabel(self, text, maxTextLen):
         # ctc_loss can't compute loss if it cannot find a mapping between text label and input 
@@ -694,7 +715,7 @@ class Model:
         self.snapID = 0
 
         # input image batch
-        self.inputImgs = tf.placeholder(tf.float32, shape=(None, self.imgSize[0], self.imgSize[1]))
+        self.inputImgs = tf.compat.v1.placeholder(tf.float32, shape=(None, self.imgSize[0], self.imgSize[1]))
 
         # setup CNN, RNN and CTC
         self.setupCNN()
@@ -703,8 +724,8 @@ class Model:
 
         # setup optimizer to train NN
         self.batchesTrained = 0
-        self.learningRate = tf.placeholder(tf.float32, shape=[])
-        self.optimizer = tf.train.RMSPropOptimizer(self.learningRate).minimize(self.loss)
+        self.learningRate = tf.compat.v1.placeholder(tf.float32, shape=[])
+        self.optimizer = tf.compat.v1.train.RMSPropOptimizer(self.learningRate).minimize(self.loss)
 
         # initialize TF
 
@@ -726,10 +747,10 @@ class Model:
         # create layers
         pool = cnnIn4d # input to first CNN layer
         for i in range(numLayers):
-            kernel = tf.Variable(tf.truncated_normal([kernelVals[i], kernelVals[i], featureVals[i], featureVals[i + 1]], stddev=0.1))
+            kernel = tf.Variable(tf.random.truncated_normal([kernelVals[i], kernelVals[i], featureVals[i], featureVals[i + 1]], stddev=0.1))
             conv = tf.nn.conv2d(pool, kernel, padding='SAME',  strides=(1,1,1,1))
             relu = tf.nn.relu(conv)
-            pool = tf.nn.max_pool(relu, (1, poolVals[i][0], poolVals[i][1], 1), (1, strideVals[i][0], strideVals[i][1], 1), 'VALID')
+            pool = tf.nn.max_pool2d(relu, (1, poolVals[i][0], poolVals[i][1], 1), (1, strideVals[i][0], strideVals[i][1], 1), 'VALID')
 
         self.cnnOut4d = pool
 
@@ -763,15 +784,15 @@ class Model:
         # BxTxC -> TxBxC
         self.ctcIn3dTBC = tf.transpose(self.rnnOut3d, [1, 0, 2])
         # ground truth text as sparse tensor
-        self.gtTexts = tf.SparseTensor(tf.placeholder(tf.int64, shape=[None, 2]) , tf.placeholder(tf.int32, [None]), tf.placeholder(tf.int64, [2]))
+        self.gtTexts = tf.SparseTensor(tf.compat.v1.placeholder(tf.int64, shape=[None, 2]) , tf.compat.v1.placeholder(tf.int32, [None]), tf.compat.v1.placeholder(tf.int64, [2]))
 
         # calc loss for batch
-        self.seqLen = tf.placeholder(tf.int32, [None])
-        self.loss = tf.reduce_mean(tf.nn.ctc_loss(labels=self.gtTexts, inputs=self.ctcIn3dTBC, sequence_length=self.seqLen, ctc_merge_repeated=True))
+        self.seqLen = tf.compat.v1.placeholder(tf.int32, [None])
+        self.loss = tf.reduce_mean(tf.compat.v1.nn.ctc_loss(labels=self.gtTexts, inputs=self.ctcIn3dTBC, sequence_length=self.seqLen, ctc_merge_repeated=True))
 
         # calc loss for each element to compute label probability
-        self.savedCtcInput = tf.placeholder(tf.float32, shape=[self.maxTextLen, None, len(self.charList) + 1])
-        self.lossPerElement = tf.nn.ctc_loss(labels=self.gtTexts, inputs=self.savedCtcInput, sequence_length=self.seqLen, ctc_merge_repeated=True)
+        self.savedCtcInput = tf.compat.v1.placeholder(tf.float32, shape=[self.maxTextLen, None, len(self.charList) + 1])
+        self.lossPerElement = tf.compat.v1.nn.ctc_loss(labels=self.gtTexts, inputs=self.savedCtcInput, sequence_length=self.seqLen, ctc_merge_repeated=True)
 
         # decoder: either best path decoding or beam search decoding
         if self.decoderType == DecoderType.BestPath:
@@ -780,13 +801,13 @@ class Model:
             self.decoder = tf.nn.ctc_beam_search_decoder(inputs=self.ctcIn3dTBC, sequence_length=self.seqLen, beam_width=50, merge_repeated=False)
         elif self.decoderType == DecoderType.WordBeamSearch:
             # import compiled word beam search operation (see https://github.com/githubharald/CTCWordBeamSearch)
-            word_beam_search_module = tf.load_op_library('TFWordBeamSearch.so')
-
+            print("Loading WordBeamSearch...")
+            word_beam_search_module = tf.load_op_library('cpp/proj/TFWordBeamSearch.so')
             # prepare information about language (dictionary, characters in dataset, characters forming words) 
             chars = str().join(self.charList)
             wordChars = open(self.modelDir+'wordCharList.txt').read().splitlines()[0]
             corpus = open(self.modelDir+'corpus.txt').read()
-
+            
             # decode using the "Words" mode of word beam search
             self.decoder = word_beam_search_module.word_beam_search(tf.nn.softmax(self.ctcIn3dTBC, dim=2), 50, 'Words', 0.0, corpus.encode('utf8'), chars.encode('utf8'), wordChars.encode('utf8'))
 
@@ -796,9 +817,10 @@ class Model:
         print('Python: '+sys.version)
         print('Tensorflow: '+tf.__version__)
 
-        sess=tf.Session() # TF session
+        sess=tf.compat.v1.Session() # TF session
 
-        saver = tf.train.Saver(max_to_keep=1) # saver saves model to file
+        #saver = tf.train.Saver(max_to_keep=1) # saver saves model to file
+        saver = tf.compat.v1.train.Saver(max_to_keep=1)
         latestSnapshot = tf.train.latest_checkpoint(self.modelDir) # is there a saved model?
 
         # if model must be restored (for inference), there must be a snapshot
@@ -811,7 +833,7 @@ class Model:
             saver.restore(sess, latestSnapshot)
         else:
             print('Init with new values')
-            sess.run(tf.global_variables_initializer())
+            sess.run(tf.compat.v1.global_variables_initializer())
 
         return (sess,saver)
 
@@ -917,7 +939,7 @@ class Model:
 def train(model, loader):
     "train NN"
     epoch = 0 # number of training epochs since start
-    bestCharErrorRate = float('inf') # best valdiation character error rate
+    bestCharErrorRate = float('inf') # best validation character error rate
     noImprovementSince = 0 # number of epochs no improvement of character error rate occured
     earlyStopping = model.earlyStopping  # stop training after this number of epochs without improvement
     accLoss = []
@@ -961,9 +983,6 @@ def train(model, loader):
     end_time = datetime.datetime.now()
     print("Total training time was {}".format(end_time-start_time))
     return accLoss, accChrErrRate, accWordAccuracy
-
-
-# In[6]:
 
 
 def validate(model, loader):
@@ -1041,33 +1060,74 @@ def infer(model, fnImg):
     print('Recognized:', '"' + recognized[0] + '"')
     print('Probability:', probability[0])
     print(recognized)
+
+
+#from pyAudioAnalysis.audioSegmentation import silence_removal
+
+def infer_image(model, o):
+    im = o[0::1].reshape(1,256)
+    im = im*256.
+    img = cv2.resize(im, model.imgSize, interpolation = cv2.INTER_AREA)
+    fname =f'dummy{uuid.uuid4().hex}.png'
+    cv2.imwrite(fname,img)
+    img = cv2.transpose(img)
+    batch = Batch(None, [img])
+    (recognized, probability) = model.inferBatch(batch, True)
+    return fname, recognized, probability
+
+
    
 def infer_file(model, fname):
-    sample = 4 
-    start = 0
-    tone = find_peak(fname)
-    o,dur = process_audio_file(fname,start,sample, tone)
-    while start < (dur - sample):
-        print(start,dur)
-        im = o[0::1].reshape(1,256)
-        im = im*256.
-        img = cv2.resize(im, model.imgSize, interpolation = cv2.INTER_AREA)
-        img = cv2.transpose(img)
-        batch = Batch(None, [img])
-        start_time = datetime.datetime.now()
-        (recognized, probability) = model.inferBatch(batch, True)
-        stop_time = datetime.datetime.now()
-        if probability[0] > 0.0005:
-            print('Recognized:', '"' + recognized[0] + '"')
-            print('Probability:', probability[0])
-            print('Duration:{}'.format(stop_time-start_time))
-        start += 2
+    print(f"SILENCE REMOVAL:{remove_silence}")
+    if remove_silence:
+        print()
+        tone = find_peak(fname)
+        [Fs,x] = wavfile.read(fname)
+        segments = silence_removal(x, Fs, 0.25, 0.05, 0.2, 0.2, False)
+        for start, stop in segments: 
+            print("*"*80,f"start:{start}, stop:{stop} dur:{stop-start}")
+            o,dur = process_audio_file2(fname, start, stop, tone)
+            start_time = datetime.datetime.now()
+            iname, recognized, probability = infer_image(model, o[0:256])
+            stop_time = datetime.datetime.now()
+            if True: #probability[0] > 0.00005:
+                print(f'File:{iname}')
+                print('Recognized:', '"' + recognized[0] + '"')
+                print('Probability:', probability[0])
+                print('Duration:{}'.format(stop_time-start_time))
+        return 
+    else:        
+        sample = 4.0 
+        start = 0.
+        tone = find_peak(fname)
         o,dur = process_audio_file(fname,start,sample, tone)
+        while start < (dur - sample):
+            print(start,dur)
+            im = o[0::1].reshape(1,256)
+            im = im*256.
+            img = cv2.resize(im, model.imgSize, interpolation = cv2.INTER_AREA)
+            cv2.imwrite(f'dummy{start}.png',img)
+
+            img = cv2.transpose(img)
+
+            batch = Batch(None, [img])
+            start_time = datetime.datetime.now()
+            (recognized, probability) = model.inferBatch(batch, True)
+            stop_time = datetime.datetime.now()
+            if probability[0] > 0.0000:
+                print('Recognized:', '"' + recognized[0] + '"')
+                print('Probability:', probability[0])
+                print('Duration:{}'.format(stop_time-start_time))
+            start += 1./1
+            o,dur = process_audio_file(fname,start,sample, tone)
 
  
 
 def main():
     "main function"
+
+    global remove_silence
+    remove_silence = False
     # optional command line args
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", help="train the NN", action="store_true")
@@ -1076,28 +1136,33 @@ def main():
     #parser.add_argument("--wordbeamsearch", help="use word beam search instead of best path decoding", action="store_true")
     parser.add_argument("--generate", help="generate a Morse dataset of random words", action="store_true")
     parser.add_argument("--experiments", help="generate a set of experiments using config files", action="store_true")
+    parser.add_argument("--silence", help="remove silence", action="store_true")
     parser.add_argument("-f", dest="filename", required=False,
                     help="input audio file ", metavar="FILE",
                     type=lambda x: is_valid_file(parser, x))
-   
+
     args = parser.parse_args()
 
-    config = Config('model.yaml') #read configs for current training/validation/inference job
+    config = Config('model_arrl.yaml') #read configs for current training/validation/inference job
 
-    decoderType = DecoderType.BestPath
+    decoderType = DecoderType.WordBeamSearch
+    #decoderType = DecoderType.BeamSearch
+    #decoderType = DecoderType.BestPath
+    
     #if args.beamsearch:
     #    decoderType = DecoderType.BeamSearch
     #elif args.wordbeamsearch:
     #    decoderType = DecoderType.WordBeamSearch
     if args.experiments:
-
-        experiments = [f for f in listdir(FilePaths.fnExperiments) if isfile(join(FilePaths.fnExperiments, f))]
+        print("*"*80)
+        print(f"Looking for model files in {config.value('experiment.fnExperiments')}")
+        experiments = [f for f in listdir(config.value("experiment.fnExperiments")) if isfile(join(config.value("experiment.fnExperiments"), f))]
         print(experiments)
         for filename in experiments:
             tf.reset_default_graph()
             config = Config(FilePaths.fnExperiments+filename)
             generate_dataset(config)
-            decoderType = DecoderType.BestPath
+            decoderType = DecoderType.WordBeamSearch
             loader = MorseDataset(config)
             model = Model(loader.charList, config, decoderType)
             loss, charErrorRate, wordAccuracy = train(model, loader)
@@ -1110,14 +1175,15 @@ def main():
         # load training data, create TF model
         #loader = DataLoader(FilePaths.fnTrain, Model.batchSize, Model.imgSize, Model.maxTextLen)
         #loader = DataLoader(FilePaths.fnTrain, Model.batchSize, Model.imgSize, Model.maxTextLen)
-        decoderType = DecoderType.BestPath
-        loader = MorseDataset("./", config.value("model.batchSize"), config.value("model.imgSize"), config.value("model.maxTextLen"))
+        decoderType = DecoderType.WordBeamSearch
+        decoderType = DecoderType.BeamSearch
+        loader = MorseDataset(config)
 
         # save characters of model for inference mode
-        open(FilePaths.fnCharList, 'w').write(str().join(loader.charList))
+        open(config.value("experiment.fnCharList"), 'w').write(str().join(loader.charList))
                 
         # save words contained in dataset into file
-        open(FilePaths.fnCorpus, 'w').write(str(' ').join(loader.trainWords + loader.validationWords))
+        open(config.value("experiment.fnCorpus"), 'w').write(str(' ').join(loader.trainWords + loader.validationWords))
         
         # execute training or validation
         if args.train:
@@ -1142,10 +1208,14 @@ def main():
 
     # infer text on test audio file
     else:
+        if args.silence:
+            print(f"SILENCE REMOVAL ON")
+            remove_silence = True
         config = Config('model.yaml')
-        #print(open(FilePaths.fnAccuracy).read())
+        print("*"*80)
+        print(open(config.value("experiment.fnAccuracy")).read())
         start_time = datetime.datetime.now()
-        model = Model(open(FilePaths.fnCharList).read(), config, decoderType, mustRestore=True)
+        model = Model(open(config.value("experiment.fnCharList")).read(), config, decoderType, mustRestore=True)
         print("Loading model took:{}".format(datetime.datetime.now()-start_time))
         infer_file(model, args.filename)
 

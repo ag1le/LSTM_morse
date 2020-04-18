@@ -17,8 +17,6 @@ from config.Config import Config
 
 
 
-
-
 def morse(text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, length_seconds=4, total_seconds=None,play_sound=True):
     '''
     # MORSE converts text to playable morse code in wav format
@@ -296,7 +294,8 @@ def generate_dataset(config):
     word_max_length = config.value('morse.word_max_length')
     words_in_sample = config.value('morse.words_in_sample')
     print("SNR_DB:{}".format(SNR_DB))
-  
+    error_counter = 0
+
     with open(corpus_file) as corpus:
         words = corpus.read().split("\n")
 
@@ -321,13 +320,14 @@ def generate_dataset(config):
                 audio_file = "{}SNR{}WPM{}-{}-{}.wav".format(fnAudio, SNR[0], speed[0], phrase[:-1], uuid.uuid4().hex)      
                 try:
                     #print(f"{audio_file}")
-                    morse(phrase, audio_file, SNR[0], 600, 8000, speed[0], length_seconds, None, False)
+                    morse(phrase, audio_file, SNR[0], 600, 8000, speed[0], length_seconds, 5, False)
                     mf.write(audio_file+' '+phrase+'\n')
                     
                 except Exception as err:
                     print(f"ERROR: {audio_file} {err}")
+                    error_counter += 1
                     continue
-            print("completed {} files".format(count)) 
+            print(f"completed {count} files from {wordcount}, with {error_counter} errors") 
 
 def main(argv):
     if len(argv) < 2:
