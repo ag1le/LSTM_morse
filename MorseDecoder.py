@@ -262,7 +262,8 @@ def morse(text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, l
 
     # calculate total text length in seconds
     tot_len = txt_dits * dit
-    assert length_seconds - tot_len > 0
+    if (length_seconds - tot_len < 0):
+        raise ValueError(f"text length {tot_len:.2f} exceeds audio length {length_seconds:.2f}")
 
     # calculate how many dits will fit in the 
     pad_dits = int((length_seconds - tot_len)/dit)
@@ -447,8 +448,10 @@ import re
 
 
 def generate_dataset(config):
-    "generate audio dataset from a dictionary of random words"
+    "generate audio dataset from a corpus of words"
     URL = "https://svnweb.freebsd.org/csrg/share/dict/words?view=co&content-type=text/plain"
+    directory   = config.value('model.directory')
+    corpus_file = config.value('model.corpus')
     filePath    = config.value('model.name')
     fnTrain     = config.value('morse.fnTrain')
     fnAudio     = config.value('morse.fnAudio')
@@ -459,16 +462,22 @@ def generate_dataset(config):
     word_max_length = config.value('morse.word_max_length')
     words_in_sample = config.value('morse.words_in_sample')
     print("SNR_DB:{}".format(SNR_DB))
-    rv = requests.get(URL)
-    if rv.status_code == 200:
-        try: 
-            os.makedirs(filePath)
-        except OSError:
-            print("Error: cannot create ", filePath)
+    error_counter = 0
+
+    try: 
+        os.makedirs(directory)
+    except OSError:
+        print("Error: cannot create ", directory)
+        
+    with open(corpus_file) as corpus:
+        words = corpus.read().split("\n")
+
+        
 
         with open(fnTrain,'w') as mf:
-            words = rv.text.split("\n")
+            
             wordcount = len(words)
+            print(f"wordcount:{wordcount}")
             words = [w.upper() for w in words if len(w) <= word_max_length]
             for i in range(count): # count of samples to generate 
                 sample= random.sample(words, words_in_sample)
@@ -478,11 +487,17 @@ def generate_dataset(config):
                     continue
                 speed = random.sample(code_speed,1)
                 SNR = random.sample(SNR_DB,1)
-                audio_file = "{}SNR{}WPM{}-{}-{}.wav".format(fnAudio, SNR[0], speed[0], phrase, uuid.uuid4().hex)      
-                morse(phrase, audio_file, SNR[0], 600, 8000, speed[0], length_seconds, 8, False)
-                mf.write(audio_file+' '+phrase+'\n')
-                #print(audio_file, phrase)
-            print("completed {} files".format(count)) 
+                audio_file = "{}SNR{}WPM{}-{}-{}.wav".format(fnAudio, SNR[0], speed[0], phrase[:-1], uuid.uuid4().hex)      
+                try:
+                    #print(f"{audio_file}")
+                    morse(phrase, audio_file, SNR[0], 600, 8000, speed[0], length_seconds, 5, False)
+                    mf.write(audio_file+' '+phrase+'\n')
+                    
+                except Exception as err:
+                    print(f"ERROR: {audio_file} {err}")
+                    error_counter += 1
+                    continue
+            print(f"completed {count} files from {wordcount}, with {error_counter} errors") 
 
 
 
@@ -705,8 +720,8 @@ class MorseDataset():
         # list of all chars in dataset
         self.charList = sorted(list(chars))
         file_name = config.value("experiment.fnCharList")
-        print(f"file:{file_name}")
-        open(file_name, 'w').write(str().join(self.charList))
+        with open(file_name, 'w') as fn:
+            fn.write(str().join(self.charList))
 
     def truncateLabel(self, text, maxTextLen):
         # ctc_loss can't compute loss if it cannot find a mapping between text label and input 
@@ -773,7 +788,7 @@ class Model:
 
     
 
-    def __init__(self, charList, config, decoderType=DecoderType.BestPath, mustRestore=False):
+    def __init__(self, config, decoderType=DecoderType.BestPath, mustRestore=False):
         "init model: add CNN, RNN and CTC and initialize TF"
 
         # model constants
@@ -783,7 +798,7 @@ class Model:
         self.maxTextLen =  config.value('model.maxTextLen') # was 32
         self.earlyStopping = config.value('model.earlyStopping') #was 5
 
-        self.charList = charList
+        self.charList = open(config.value("experiment.fnCharList")).read()
         self.decoderType = decoderType
         self.mustRestore = mustRestore
         self.snapID = 0
@@ -1239,7 +1254,7 @@ def main():
             generate_dataset(exp_config)
             decoderType = DecoderType.WordBeamSearch
             loader = MorseDataset(exp_config)
-            model = Model(loader.charList, exp_config, decoderType)
+            model = Model(exp_config, decoderType)
             loss, charErrorRate, wordAccuracy = train(model, loader)
             with open(FilePaths.fnResults, 'a+') as fr:
                 fr.write("\nexperiment:{} loss:{} charErrorRate:{} wordAccuracy:{}".format(filename, min(loss), min(charErrorRate), max(wordAccuracy)))
@@ -1262,7 +1277,7 @@ def main():
         
         # execute training or validation
         if args.train:
-            model = Model(loader.charList, config, decoderType)
+            model = Model(config, decoderType)
             loss, charErrorRate, wordAccuracy = train(model, loader)
             plt.figure(figsize=(20,10))
             plt.subplot(3, 1, 1)
@@ -1276,7 +1291,7 @@ def main():
             plt.plot(loss)
             plt.show()
         elif args.validate:
-            model = Model(loader.charList, config, decoderType, mustRestore=True)
+            model = Model(config, decoderType, mustRestore=True)
             validate(model, loader)
     elif args.generate:
         generate_dataset(config)
@@ -1290,7 +1305,7 @@ def main():
         print("*"*80)
         print(open(config.value("experiment.fnAccuracy")).read())
         start_time = datetime.datetime.now()
-        model = Model(open(config.value("experiment.fnCharList")).read(), config, decoderType, mustRestore=True)
+        model = Model(config, decoderType, mustRestore=True)
         print("Loading model took:{}".format(datetime.datetime.now()-start_time))
         infer_file(model, args.filename)
 

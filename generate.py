@@ -296,13 +296,15 @@ def generate_dataset(config):
     print("SNR_DB:{}".format(SNR_DB))
     error_counter = 0
 
+    try: 
+        os.makedirs(directory)
+    except OSError:
+        print("Error: cannot create ", directory)
+        
     with open(corpus_file) as corpus:
         words = corpus.read().split("\n")
 
-        try: 
-            os.makedirs(directory)
-        except OSError:
-            print("Error: cannot create ", directory)
+        
 
         with open(fnTrain,'w') as mf:
             
