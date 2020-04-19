@@ -498,6 +498,80 @@ class Batch:
         self.imgs = np.stack(imgs, axis=0)
         self.gtTexts = gtTexts
 
+from matplotlib.mlab import specgram
+nfft = 256 
+overlap = nfft - 56  # overlap value for spectrogram
+
+def get_specgram(signal, rate):
+    arr2D, freqs, bins = specgram(
+        signal,
+        window=np.blackman(nfft),
+        Fs=rate,
+        NFFT=nfft,
+        noverlap=overlap,
+        pad_to=32 * nfft,
+    )
+    return arr2D, freqs, bins
+
+def create_image2(filename, imgSize, dataAugmentation=False):
+
+    imgname = filename+".png"
+    
+    # Load  image in grayscale if exists
+    img = cv2.imread(imgname,0)
+        
+    if img is None:
+        rate, data = wavfile.read(filename)
+        arr2D, freqs, bins = get_specgram(data, rate)
+
+        # Get the image data array shape (Freq bins, Time Steps)
+        shape = arr2D.shape
+
+        # Find the CW spectrum peak - look across all time steps
+        f = int(np.argmax(arr2D[:]) / shape[1])
+
+        time_steps = (4.0/(len(data)/rate))*shape[1]
+        #print(f"time_steps{time_steps}")
+
+        # Create a 32x128 array centered to spectrum peak
+        img = cv2.resize(arr2D[f - 16 : f + 16][0:568], (128, 32))
+        
+        if False: # change to True if want to plot 
+            fig, ax = plt.subplots(1,1)
+            extent = (bins[0], bins[-1], freqs[-1], freqs[0])
+            im = ax.imshow(
+                arr2D,
+                aspect="auto",
+                extent=extent,
+                interpolation="none",
+                cmap="Greys",
+                norm=None,
+            )
+            plt.gca().invert_yaxis()
+            plt.show()
+
+        # normalize
+        (m, s) = cv2.meanStdDev(img)
+        m = m[0][0]
+        s = s[0][0]
+        img = img - m
+        img = img / s if s>0 else img
+        img = img*256.
+        if img.shape == (32, 128):
+            cv2.imwrite(imgname, img)
+
+    # normalize
+    (m, s) = cv2.meanStdDev(img)
+    m = m[0][0]
+    s = s[0][0]
+    img = img - m
+    img = img / s if s>0 else img
+    
+    # transpose for TF
+    img = cv2.transpose(img)
+    return  img
+
+
 def create_image(filename, imgSize, dataAugmentation=False):
     
     # get image name from audio file name - assumes 'audio/filename.wav' format
@@ -584,34 +658,34 @@ class MorseDataset():
             #if not os.path.isdir(filePath):
             #    raise
         print(f"MorseDataset: loading {config.value('morse.fnTrain')}")
-        f=open(config.value('morse.fnTrain'),'r')
-        chars = set()
-        bad_samples = []
+        with open(config.value('morse.fnTrain'),'r') as f:
+            chars = set()
+            bad_samples = []
 
-        # read all lines in the file 
-        for line in f:
-            # ignore comment line
-            if not line or line[0]=='#':
-                continue
-            
-            lineSplit = line.strip().split(' ')
-            assert len(lineSplit) >= 2, "line is {}".format(line)
-            
-            # filenames: audio/*.wav
-            fileNameAudio = lineSplit[0]
+            # read all lines in the file 
+            for line in f:
+                # ignore comment line
+                if not line or line[0]=='#':
+                    continue
+                
+                lineSplit = line.strip().split(' ')
+                assert len(lineSplit) >= 2, "line is {}".format(line)
+                
+                # filenames: audio/*.wav
+                fileNameAudio = lineSplit[0]
 
-            # Ground Truth text - open files and append to samples
-            #
+                # Ground Truth text - open files and append to samples
+                #
 
-            gtText = self.truncateLabel(' '.join(lineSplit[1:]), self.maxTextLen)
-            gtText = gtText +' '
-            print(gtText)
-            chars = chars.union(set(list(gtText)))
+                gtText = self.truncateLabel(' '.join(lineSplit[1:]), self.maxTextLen)
+                gtText = gtText 
+                print(gtText)
+                chars = chars.union(set(list(gtText)))
 
-            # put sample into list
-            #print("sample text length:{} {}".format(len(gtText), gtText))
-            self.samples.append(Sample(gtText, fileNameAudio))
-            
+                # put sample into list
+                #print("sample text length:{} {}".format(len(gtText), gtText))
+                self.samples.append(Sample(gtText, fileNameAudio))
+                
 
         # split into training and validation set: 95% - 5%
         splitIdx = int(0.95 * len(self.samples))
@@ -623,7 +697,7 @@ class MorseDataset():
         self.validationWords = [x.gtText for x in self.validationSamples]
 
         # number of randomly chosen samples per epoch for training 
-        self.numTrainSamplesPerEpoch = 25000 
+        self.numTrainSamplesPerEpoch = config.value('morse.count')
         
         # start with train set
         self.trainSet()
@@ -1000,8 +1074,8 @@ def validate(model, loader):
         iterInfo = loader.getIteratorInfo()
         print('Batch:', iterInfo[0],'/', iterInfo[1])
         batch = loader.getNext()
-        (recognized, _) = model.inferBatch(batch)
-        print(recognized)
+        (recognized, probability) = model.inferBatch(batch)
+        print(recognized, probability)
         
         print('Ground truth -> Recognized')    
         for i in range(len(recognized)):
@@ -1155,16 +1229,17 @@ def main():
     #    decoderType = DecoderType.WordBeamSearch
     if args.experiments:
         print("*"*80)
-        print(f"Looking for model files in {config.value('experiment.fnExperiments')}")
-        experiments = [f for f in listdir(config.value("experiment.fnExperiments")) if isfile(join(config.value("experiment.fnExperiments"), f))]
+        fnExperiments = config.value('experiment.fnExperiments')
+        print(f"Looking for model files in {fnExperiments}")
+        experiments = [f for f in listdir(fnExperiments) if isfile(join(fnExperiments, f))]
         print(experiments)
         for filename in experiments:
             tf.reset_default_graph()
-            config = Config(FilePaths.fnExperiments+filename)
-            generate_dataset(config)
+            exp_config = Config(fnExperiments+filename)
+            generate_dataset(exp_config)
             decoderType = DecoderType.WordBeamSearch
-            loader = MorseDataset(config)
-            model = Model(loader.charList, config, decoderType)
+            loader = MorseDataset(exp_config)
+            model = Model(loader.charList, exp_config, decoderType)
             loss, charErrorRate, wordAccuracy = train(model, loader)
             with open(FilePaths.fnResults, 'a+') as fr:
                 fr.write("\nexperiment:{} loss:{} charErrorRate:{} wordAccuracy:{}".format(filename, min(loss), min(charErrorRate), max(wordAccuracy)))
