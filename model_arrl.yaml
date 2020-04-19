@@ -19,7 +19,6 @@ morse:
       - 10
       - 6
       - 3
-      - 0
       - -3
       - -6
     f_code:     600
@@ -28,10 +27,12 @@ morse:
       - 40
       - 30
       - 25
+      - 22
       - 20
+      - 18
     length_seconds:   4
     play_sound: False
-    word_max_length: 10
+    word_max_length: 8
     words_in_sample: 1
 
 experiment:
