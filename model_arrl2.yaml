@@ -1,0 +1,46 @@
+model:
+    # model constants
+    directory: "/Volumes/Elements/model-arrl2"
+    name: "model-arrl2/"
+    batchSize: 100  
+    imgSize: !!python/tuple [128,32] 
+    maxTextLen: 32
+    earlyStopping: 10
+    corpus: "arrl_corpus.txt"
+    split: 0.70  # 70% training - 30% validation
+    numTrainSamplesPerEpoch: 5000
+
+morse:
+    fnTrain:    "/Volumes/Elements/model-arrl2/morsewords.txt"
+    fnAudio:    "/Volumes/Elements/model-arrl2/"
+    count:      25000
+    SNR_dB:     
+      - 40
+      - 30
+      - 20
+      - 10
+      - 6
+      - 3
+      - -3
+      - -6
+    f_code:     600
+    Fs:         8000
+    code_speed: 
+      - 40
+      - 30
+      - 25
+      - 22
+      - 20
+      - 18
+    length_seconds:   4
+    play_sound: False
+    word_max_length: 5
+    words_in_sample: 1
+
+experiment:
+    modelDir:   "/Volumes/Elements/model-arrl2/"
+    fnAccuracy: "/Volumes/Elements/model-arrl2/accuracy.txt"
+    fnTrain:    "/Volumes/Elements/model-arrl2/morsewords.txt"
+    fnInfer:    "/Volumes/Elements/model-arrl2/test.png"
+    fnCorpus:   "/Volumes/Elements/model-arrl2/corpus.txt"
+    fnCharList: "/Volumes/Elements/model-arrl2/wordCharList.txt"

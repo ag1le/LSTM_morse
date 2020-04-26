@@ -356,8 +356,8 @@ def generate_dataset(config):
             words = [w.upper() for w in words if len(w) <= word_max_length]
             for i in range(count): # count of samples to generate 
                 sample= random.sample(words, words_in_sample)
-                line = ' '.join(sample)
-                phrase = re.sub(r'[\'.&]', '', line)
+                line = ' '.join(sample)  # append space on each sample
+                phrase = re.sub(r'[\'.&]', '', line) # remove extra characters
                 if len(phrase) <= 1:
                     continue
                 speed = random.sample(code_speed,1)
@@ -568,7 +568,7 @@ class MorseDataset():
                 #
 
                 gtText = self.truncateLabel(' '.join(lineSplit[1:]), self.maxTextLen)
-                gtText = gtText 
+                gtText = gtText + ' '  # append space to end of each word 
                 print(gtText)
                 chars = chars.union(set(list(gtText)))
 
@@ -1107,7 +1107,7 @@ def main():
 
     args = parser.parse_args()
 
-    config = Config('model_arrl.yaml') #read configs for current training/validation/inference job
+    config = Config('model_arrl2.yaml') #read configs for current training/validation/inference job
 
     decoderType = DecoderType.WordBeamSearch
     #decoderType = DecoderType.BeamSearch
