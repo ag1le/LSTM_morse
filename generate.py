@@ -101,19 +101,18 @@ class Morse():
                      
     }
     def __init__(self, text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, length_seconds=4, total_seconds=8, play_sound=True):
-        self.text = text.upper()
-        self.file_name = file_name            # file name to store WAV file 
+        self.text = text.upper()              # store requested text to be converted in here 
+        self.file_name = file_name            # file name to store generated WAV file 
         self.SNR_dB = SNR_dB                  # target SNR in dB 
         self.f_code = f_code                  # CW tone frequency
         self.Fs = Fs                          # Sampling frequency 
         self.code_speed = code_speed          # code speed in WPM
-        self.length_seconds = length_seconds  # caps the CW generation  to 
+        self.length_seconds = length_seconds  # caps the CW generation to this length in seconds
         self.total_seconds = total_seconds    # pads to the total length if possible 
-        self.play_sound = play_sound          # If true play generated audio 
+        self.play_sound = play_sound          # If true, play the generated audio 
 
-        self.len = self.len_str(self.text)
-        self.parse_index = 0
-        self.morsecode = []
+        self.len = self.len_str_in_dits(self.text)
+        self.morsecode = []  # store audio representation here 
         self.t = np.linspace(0., 1.2/self.code_speed, num=int(self.Fs*1.2/self.code_speed), endpoint=True, retstep=False)
         self.Dit = np.sin(2*np.pi*self.f_code*self.t)
         self.ssp = np.zeros(len(self.Dit))
@@ -124,7 +123,7 @@ class Morse():
         self.lsp = np.zeros(len(self.Dah))
 
     def len_dits(self, cws):
-        """Return the length of CW string in dit units, including spaces. """
+        """Return the length of cw_string in dit units, including spaces. """
         val = 0
         for ch in cws:
             if ch == '.': # dit len  
@@ -133,32 +132,30 @@ class Morse():
                 val += 3
             if ch=='_':   #  word space
                 val += 4
-            val += 1 # el space
-        val += 2     # char space = 3  (el space +2)
+            val += 1 # el space is one dit 
+        val += 2     # char space = 3  (el space + 2)
         return val
         
-    def len_chr(self, ch):
+    def len_chr_in_dits(self, ch):
         s = Morse.code[ch]
-        #print(s)
         return self.len_dits(s)
     
-    def len_str(self, s):
+    def len_str_in_dits(self, s):
+        """Return length of string in dit units"""
         if len(s) == 0:
             return 0
-        i = 0 
+        val = 0 
         for ch in s:
-            val = self.len_chr(ch)
-            i += val
-            #print(ch, val, i)
-        return i-3  #remove last char space at end of string
+            val += self.len_chr_in_dits(ch)
+        return val-3  #remove last char space at end of string
 
-    def len_in_secs(self, s):
+    def len_str_in_secs(self, s):
         dit = 1.2/self.code_speed
-        len_in_dits = self.len_str(s)
+        len_in_dits = self.len_str_in_dits(s)
         return dit*len_in_dits 
 
 
-    def generate(self):
+    def generate_audio(self):
         for ch in self.text:
             s = Morse.code[ch]
             for el in s:
@@ -205,7 +202,7 @@ class Morse():
         """Generate audio file using other functions"""
         self.morsecode = []
         self.pad_start()
-        self.generate()
+        self.generate_audio()
         self.pad_end()
         self.SNR()
         self.normalize()
@@ -227,16 +224,16 @@ class Morse():
         mybuf = ''
         for nextchar in self.text:
             mybuf += nextchar
-            len_in_secs = self.len_in_secs(mybuf)
-            if len_in_secs < self.length_seconds:
+            len_str_in_secs = self.len_str_in_secs(mybuf)
+            if len_str_in_secs < self.length_seconds:
                 continue
-            elif len_in_secs >= self.length_seconds:
-                yield mybuf[:-1], self.len_in_secs(mybuf[:-1])
+            elif len_str_in_secs >= self.length_seconds:
+                yield mybuf[:-1], self.len_str_in_secs(mybuf[:-1])
                 mybuf = nextchar
-            elif len_in_secs < 0.:
+            elif len_str_in_secs < 0.:
                 raise ValueException("ERROR: parse_string should never have negative length strings")
    
-        yield mybuf[:], self.len_in_secs(mybuf[:])
+        yield mybuf[:], self.len_str_in_secs(mybuf[:])
 
 # 24487 words in alphabetical order 
 # https://svnweb.freebsd.org/csrg/share/dict/words?view=co&content-type=text/plain 
@@ -282,7 +279,7 @@ def generate_dataset(config):
             wordcount = 0
             with Morse(text,code_speed=speed) as m1, open(fnTrain,'w') as mf:
                 for line, duration in m1.generate_fragments():
-                    phrase = re.sub(r'[\'&/]', '', line) # remove extra characters
+                    phrase = re.sub(r'[\'&/\n]', '', line) # remove extra characters
                     if len(phrase) <= 1:
                         continue
                     print(f"speed:{speed} of {len(code_speed)} phrase:{phrase} dur:{duration}")
