@@ -1,18 +1,18 @@
 model:
     # model constants
-    directory: "/Volumes/Elements/model-arrl"
-    name: "model-arrl/"
+    directory: "/Volumes/Elements/model-arrl3"
+    name: "model-arrl3/"
     batchSize: 100  
     imgSize: !!python/tuple [128,32] 
     maxTextLen: 32
-    earlyStopping: 10
+    earlyStopping: 5
     corpus: "arrl_corpus.txt"
     split: 0.70  # 70% training - 30% validation
     numTrainSamplesPerEpoch: 5000
 
 morse:
-    fnTrain:    "/Volumes/Elements/model-arrl/morsewords.txt"
-    fnAudio:    "/Volumes/Elements/model-arrl/"
+    fnTrain:    "/Volumes/Elements/model-arrl3/morsewords.txt"
+    fnAudio:    "/Volumes/Elements/model-arrl3/"
     count:      25000
     SNR_dB:     
       - 40
@@ -38,9 +38,9 @@ morse:
     words_in_sample: 1
 
 experiment:
-    modelDir:   "/Volumes/Elements/model-arrl/"
-    fnAccuracy: "/Volumes/Elements/model-arrl/accuracy.txt"
-    fnTrain:    "/Volumes/Elements/model-arrl/morsewords.txt"
-    fnInfer:    "/Volumes/Elements/model-arrl/test.png"
-    fnCorpus:   "/Volumes/Elements/model-arrl/corpus.txt"
-    fnCharList: "/Volumes/Elements/model-arrl/wordCharList.txt"
+    modelDir:   "/Volumes/Elements/model-arrl3/"
+    fnAccuracy: "/Volumes/Elements/model-arrl3/accuracy.txt"
+    fnTrain:    "/Volumes/Elements/model-arrl3/morsewords.txt"
+    fnInfer:    "/Volumes/Elements/model-arrl3/test.png"
+    fnCorpus:   "/Volumes/Elements/model-arrl3/corpus.txt"
+    fnCharList: "/Volumes/Elements/model-arrl3/wordCharList.txt"

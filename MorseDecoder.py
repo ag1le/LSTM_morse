@@ -199,21 +199,23 @@ class Morse():
              '\\': '.-..-.',
              '_': '..--.-',
              '~': '.-.-',
-             ' ': '_'
+             ' ': '_',
+             '\n':'_'
+                     
     }
     def __init__(self, text, file_name=None, SNR_dB=20, f_code=600, Fs=8000, code_speed=20, length_seconds=4, total_seconds=8, play_sound=True):
-        self.text = text.upper()
-        self.file_name = file_name            # file name to store WAV file 
+        self.text = text.upper()              # store requested text to be converted in here 
+        self.file_name = file_name            # file name to store generated WAV file 
         self.SNR_dB = SNR_dB                  # target SNR in dB 
         self.f_code = f_code                  # CW tone frequency
         self.Fs = Fs                          # Sampling frequency 
         self.code_speed = code_speed          # code speed in WPM
-        self.length_seconds = length_seconds  # caps the CW generation  to 
+        self.length_seconds = length_seconds  # caps the CW generation to this length in seconds
         self.total_seconds = total_seconds    # pads to the total length if possible 
-        self.play_sound = play_sound          # If true play generated audio 
+        self.play_sound = play_sound          # If true, play the generated audio 
 
-        self.len = self.len_str(self.text)
-        self.morsecode = []
+        self.len = self.len_str_in_dits(self.text)
+        self.morsecode = []  # store audio representation here 
         self.t = np.linspace(0., 1.2/self.code_speed, num=int(self.Fs*1.2/self.code_speed), endpoint=True, retstep=False)
         self.Dit = np.sin(2*np.pi*self.f_code*self.t)
         self.ssp = np.zeros(len(self.Dit))
@@ -224,7 +226,7 @@ class Morse():
         self.lsp = np.zeros(len(self.Dah))
 
     def len_dits(self, cws):
-        """Return the length of CW string in dit units, including spaces. """
+        """Return the length of cw_string in dit units, including spaces. """
         val = 0
         for ch in cws:
             if ch == '.': # dit len  
@@ -233,24 +235,30 @@ class Morse():
                 val += 3
             if ch=='_':   #  word space
                 val += 4
-            val += 1 # el space
-        val += 2     # char space = 3  (el space +2)
+            val += 1 # el space is one dit 
+        val += 2     # char space = 3  (el space + 2)
         return val
         
-    def len_chr(self, ch):
+    def len_chr_in_dits(self, ch):
         s = Morse.code[ch]
-        #print(s)
         return self.len_dits(s)
     
-    def len_str(self, s):
-        i = 0 
+    def len_str_in_dits(self, s):
+        """Return length of string in dit units"""
+        if len(s) == 0:
+            return 0
+        val = 0 
         for ch in s:
-            val = self.len_chr(ch)
-            i += val
-            #print(ch, val, i)
-        return i-3  #remove last char space at end of string
+            val += self.len_chr_in_dits(ch)
+        return val-3  #remove last char space at end of string
 
-    def generate(self):
+    def len_str_in_secs(self, s):
+        dit = 1.2/self.code_speed
+        len_in_dits = self.len_str_in_dits(s)
+        return dit*len_in_dits 
+
+
+    def generate_audio(self):
         for ch in self.text:
             s = Morse.code[ch]
             for el in s:
@@ -297,7 +305,7 @@ class Morse():
         """Generate audio file using other functions"""
         self.morsecode = []
         self.pad_start()
-        self.generate()
+        self.generate_audio()
         self.pad_end()
         self.SNR()
         self.normalize()
@@ -306,7 +314,29 @@ class Morse():
         if self.file_name:
             write(self.file_name, self.Fs, self.morsecode)
         
+    def __enter__(self):
+        return self
 
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is not None:
+            print(f"in __exit__:{exc_type} {exc_value} {traceback}")
+    
+
+    def generate_fragments(self):
+        """ Yield string fragments shorter than self.length_seconds until end of self.text"""   
+        mybuf = ''
+        for nextchar in self.text:
+            mybuf += nextchar
+            len_str_in_secs = self.len_str_in_secs(mybuf)
+            if len_str_in_secs < self.length_seconds:
+                continue
+            elif len_str_in_secs >= self.length_seconds:
+                yield mybuf[:-1], self.len_str_in_secs(mybuf[:-1])
+                mybuf = nextchar
+            elif len_str_in_secs < 0.:
+                raise ValueException("ERROR: parse_string should never have negative length strings")
+   
+        yield mybuf[:], self.len_str_in_secs(mybuf[:])
 
 
 # 24487 words in alphabetical order 
@@ -403,6 +433,16 @@ def get_specgram(signal, rate):
     )
     return arr2D, freqs, bins
 
+def normalize_image(img):
+    # normalize
+    (m, s) = cv2.meanStdDev(img)
+    m = m[0][0]
+    s = s[0][0]
+    img = img - m
+    img = img / s if s>0 else img
+    return img
+
+
 def create_image2(filename, imgSize, dataAugmentation=False):
 
     imgname = filename+".png"
@@ -440,23 +480,12 @@ def create_image2(filename, imgSize, dataAugmentation=False):
             plt.gca().invert_yaxis()
             plt.show()
 
-        # normalize
-        (m, s) = cv2.meanStdDev(img)
-        m = m[0][0]
-        s = s[0][0]
-        img = img - m
-        img = img / s if s>0 else img
+        img = normalize_image(img)
         img = img*256.
         if img.shape == (32, 128):
             cv2.imwrite(imgname, img)
 
-    # normalize
-    (m, s) = cv2.meanStdDev(img)
-    m = m[0][0]
-    s = s[0][0]
-    img = img - m
-    img = img / s if s>0 else img
-    
+    img = normalize_image(img)
     # transpose for TF
     img = cv2.transpose(img)
     return  img
@@ -558,8 +587,8 @@ class MorseDataset():
                 if not line or line[0]=='#':
                     continue
                 
-                lineSplit = line.strip().split(' ')
-                assert len(lineSplit) >= 2, "line is {}".format(line)
+                lineSplit = line.split('|')
+                assert len(lineSplit) >= 3, "line is {}".format(line)
                 
                 # filenames: audio/*.wav
                 fileNameAudio = lineSplit[0]
@@ -568,7 +597,7 @@ class MorseDataset():
                 #
 
                 gtText = self.truncateLabel(' '.join(lineSplit[1:]), self.maxTextLen)
-                gtText = gtText + ' '  # append space to end of each word 
+                gtText = gtText 
                 print(gtText)
                 chars = chars.union(set(list(gtText)))
 
@@ -1107,7 +1136,7 @@ def main():
 
     args = parser.parse_args()
 
-    config = Config('model_arrl2.yaml') #read configs for current training/validation/inference job
+    config = Config('model_arrl3.yaml') #read configs for current training/validation/inference job
 
     decoderType = DecoderType.WordBeamSearch
     #decoderType = DecoderType.BeamSearch
