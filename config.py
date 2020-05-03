@@ -1,9 +1,7 @@
 import yaml
 from functools import reduce
 
-
 class Config():
-    """ reads YAML config file. Use config.value('key') to get the corresponding value """
 
     def __init__(self, file_name): 
         with open(file_name) as f:
@@ -14,4 +12,3 @@ class Config():
     
     def __repr__(self):
         return str(self.config)
-

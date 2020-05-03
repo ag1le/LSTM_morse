@@ -24,27 +24,10 @@ import random
 from numpy.random import normal
 import numpy as np
 #from morse import Morse
-import yaml
-from functools import reduce
+from config import Config
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import datetime
-
-
-
-class Config():
-
-    def __init__(self, file_name): 
-        with open(file_name) as f:
-            self.config = yaml.load(f.read())
-    
-    def value(self, key):
-        return reduce(lambda c, k: c[k], key.split('.'), self.config)
-    
-    def __repr__(self):
-        return str(self.config)
-    
-
 
 
 # Read WAV file containing Morse code and create 256x1 (or 16x16) tiles (256 samples/4 seconds)
@@ -433,6 +416,20 @@ def get_specgram(signal, rate):
     )
     return arr2D, freqs, bins
 
+def plot_image(arr2D, bins, freqs):
+    fig, ax = plt.subplots(1,1)
+    extent = (bins[0], bins[-1], freqs[-1], freqs[0])
+    im = ax.imshow(
+        arr2D,
+        aspect="auto",
+        extent=extent,
+        interpolation="none",
+        cmap="Greys",
+        norm=None,
+    )
+    plt.gca().invert_yaxis()
+    plt.show()
+
 def normalize_image(img):
     # normalize
     (m, s) = cv2.meanStdDev(img)
@@ -464,26 +461,14 @@ def create_image2(filename, imgSize, dataAugmentation=False):
         #print(f"time_steps{time_steps}")
 
         # Create a 32x128 array centered to spectrum peak
-        img = cv2.resize(arr2D[f - 16 : f + 16][0:568], (128, 32))
+        img = cv2.resize(arr2D[f - 16 : f + 16][:], imgSize)
         
         if False: # change to True if want to plot 
-            fig, ax = plt.subplots(1,1)
-            extent = (bins[0], bins[-1], freqs[-1], freqs[0])
-            im = ax.imshow(
-                arr2D,
-                aspect="auto",
-                extent=extent,
-                interpolation="none",
-                cmap="Greys",
-                norm=None,
-            )
-            plt.gca().invert_yaxis()
-            plt.show()
+            plot_image(arr2D, bins, freqs)
 
         img = normalize_image(img)
-        img = img*256.
         if img.shape == (32, 128):
-            cv2.imwrite(imgname, img)
+            cv2.imwrite(imgname, img*256.)
 
     img = normalize_image(img)
     # transpose for TF
@@ -703,6 +688,7 @@ class Model:
         self.earlyStopping = config.value('model.earlyStopping') #was 5
 
         self.charList = open(config.value("experiment.fnCharList")).read()
+        self.corpus = open(config.value("experiment.fnCorpus")).read()
         self.decoderType = decoderType
         self.mustRestore = mustRestore
         self.snapID = 0
@@ -798,8 +784,8 @@ class Model:
             word_beam_search_module = tf.load_op_library('cpp/proj/TFWordBeamSearch.so')
             # prepare information about language (dictionary, characters in dataset, characters forming words) 
             chars = str().join(self.charList)
-            wordChars = open(self.modelDir+'wordCharList.txt').read().splitlines()[0]
-            corpus = open(self.modelDir+'corpus.txt').read()
+            wordChars = self.charList #open(self.modelDir+'wordCharList.txt').read().splitlines()[0]
+            corpus = self.corpus
             
             # decode using the "Words" mode of word beam search
             self.decoder = word_beam_search_module.word_beam_search(tf.nn.softmax(self.ctcIn3dTBC, dim=2), 50, 'Words', 0.0, corpus.encode('utf8'), chars.encode('utf8'), wordChars.encode('utf8'))
@@ -1046,7 +1032,7 @@ class FilePaths:
 
 def infer(model, fnImg):
     "recognize text in image provided by file path"
-    img = create_image(fnImg, model.imgSize)
+    img = create_image2(fnImg, model.imgSize)
     plt.imshow(img,cmap = cm.Greys_r)
     batch = Batch(None, [img])
     (recognized, probability) = model.inferBatch(batch, True)
@@ -1068,6 +1054,60 @@ def infer_image(model, o):
     (recognized, probability) = model.inferBatch(batch, True)
     return fname, recognized, probability
 
+def put_text(img, text):
+    # (0,32),cv2.FONT_HERSHEY_PLAIN, 0.7, (255,255,255),1, cv2.LINE_4)
+    font_scale = 0.7
+    font = cv2.FONT_HERSHEY_PLAIN
+    font_color = (255,255,255)
+    thickness = cv2.LINE_4
+
+    # set the rectangle background to black
+    rectangle_bgr = (0, 0, 0)
+
+    # get the width and height of the text box
+    (text_width, text_height) = cv2.getTextSize(text, font, fontScale=font_scale, thickness=thickness)[0]
+    # set the text start position
+    text_offset_x = 0
+    text_offset_y = img.shape[0]
+    print(text_width, text_height)
+    # make the coords of the box with a small padding of two pixels
+    box_coords = ((text_offset_x, text_offset_y), (text_offset_x + text_width + 2, text_offset_y - text_height - 2))
+    cv2.rectangle(img, box_coords[0], box_coords[1], rectangle_bgr, cv2.FILLED)
+    cv2.putText(img, text, (text_offset_x, text_offset_y), font, fontScale=font_scale, color=font_color, thickness=1, lineType=cv2.LINE_4) 
+    return img 
+
+
+def infer_file2(model, filename):
+    rate, alldata = wavfile.read(filename)
+    chunk = int(4.0*rate) # process in 4 second chunks
+    overlap = int(3.0*rate) #overlap 1 seconds
+    N = int(len(alldata)/(chunk-overlap))
+    print(f"chunk:{chunk} N:{N}")
+    for i in range(0, N):
+        if i == 0:
+            data =  alldata[i*chunk:(i+1)*chunk]
+        elif i > 0:
+            data = alldata[i*chunk-i*overlap:(i+1)*chunk-i*overlap]
+        time = (i*chunk-overlap)/rate
+        arr2D, freqs, bins = get_specgram(data, rate)
+
+        # Get the image data array shape (Freq bins, Time Steps)
+        shape = arr2D.shape
+
+        # Find the CW spectrum peak - look across all time steps
+        f = int(np.argmax(arr2D[:]) / shape[1])
+
+        time_steps = (4.0/(len(data)/rate))*shape[1]
+        # Create a 32x128 array centered to spectrum peak
+        img = cv2.resize(arr2D[f - 16 : f + 16][:], model.imgSize)
+        img = normalize_image(img)
+        t_img = cv2.transpose(img)
+        batch = Batch(None, [t_img])
+        (recognized, probability) = model.inferBatch(batch, True)
+        img = put_text(img, recognized[0]) 
+        cv2.imwrite(f'dummy{i}.png',img*256.)
+        print(f'i:{i} t:{time} f:{f} Recognized:|{recognized[0]}| Probability:{probability[0]}')
+        #plot_image(arr2D, bins, freqs) 
 
    
 def infer_file(model, fname):
@@ -1138,8 +1178,8 @@ def main():
 
     config = Config('model_arrl3.yaml') #read configs for current training/validation/inference job
 
-    decoderType = DecoderType.WordBeamSearch
-    #decoderType = DecoderType.BeamSearch
+    #decoderType = DecoderType.WordBeamSearch
+    decoderType = DecoderType.BeamSearch
     #decoderType = DecoderType.BestPath
     
     #if args.beamsearch:
@@ -1204,14 +1244,14 @@ def main():
         if args.silence:
             print(f"SILENCE REMOVAL ON")
             remove_silence = True
-        config = Config('model.yaml')
+        #config = Config('model.yaml')
         print("*"*80)
-        print(open(config.value("experiment.fnAccuracy")).read())
+        #print(open(config.value("experiment.fnAccuracy")).read())
         start_time = datetime.datetime.now()
         model = Model(config, decoderType, mustRestore=True)
         print("Loading model took:{}".format(datetime.datetime.now()-start_time))
-        infer_file(model, args.filename)
-
+        #infer_file(model, args.filename)
+        infer_file2(model, args.filename)
 
 if __name__ == "__main__":
     main()
