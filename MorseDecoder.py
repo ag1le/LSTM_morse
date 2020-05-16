@@ -24,7 +24,7 @@ import random
 from numpy.random import normal
 import numpy as np
 #from morse import Morse
-from config import Config
+from utils.config import Config
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import datetime
@@ -204,7 +204,6 @@ class Morse():
         self.ssp = np.zeros(len(self.Dit))
         # one Dah of time is 3 times  dit time
         self.t2 = np.linspace(0., 3*1.2/self.code_speed, num=3*int(self.Fs*1.2/self.code_speed), endpoint=True, retstep=False)
-        #Dah = np.concatenate((Dit,Dit,Dit))
         self.Dah = np.sin(2*np.pi*self.f_code*self.t2)
         self.lsp = np.zeros(len(self.Dah))
 
@@ -260,7 +259,7 @@ class Morse():
             power = self.morsecode.var()
             noise_power = power/SNR_linear
             noise = np.sqrt(noise_power)*np.random.normal(0,1,len(self.morsecode))
-        self.morsecode = noise + self.morsecode
+            self.morsecode = noise + self.morsecode
 
     def pad_start(self):
         dit = 1.2/self.code_speed # dit duration in seconds
@@ -296,6 +295,7 @@ class Morse():
             sd.play(self.morsecode, self.Fs)
         if self.file_name:
             write(self.file_name, self.Fs, self.morsecode)
+        return self.morsecode
         
     def __enter__(self):
         return self
@@ -467,6 +467,7 @@ def create_image2(filename, imgSize, dataAugmentation=False):
             plot_image(arr2D, bins, freqs)
 
         img = normalize_image(img)
+        print(f"create_image2: img.shape{img.shape} ==> {imgSize}")
         if img.shape == (32, 128):
             cv2.imwrite(imgname, img*256.)
 
@@ -1176,7 +1177,7 @@ def main():
 
     args = parser.parse_args()
 
-    config = Config('model_arrl3.yaml') #read configs for current training/validation/inference job
+    config = Config('model_arrl4.yaml') #read configs for current training/validation/inference job
 
     #decoderType = DecoderType.WordBeamSearch
     decoderType = DecoderType.BeamSearch
@@ -1251,6 +1252,9 @@ def main():
         model = Model(config, decoderType, mustRestore=True)
         print("Loading model took:{}".format(datetime.datetime.now()-start_time))
         #infer_file(model, args.filename)
+        if args.filename is None:
+            print("ERROR: no inference WAV file name given")
+            exit()
         infer_file2(model, args.filename)
 
 if __name__ == "__main__":
