@@ -33,7 +33,7 @@ ipykernel==4.6.1
 ipython==5.5.0
 ipython-genutils==0.2.0
 ipywidgets==7.0.3
-Jinja2==2.9.6
+Jinja2==2.11.3
 joblib==0.14.1
 jsonschema==2.6.0
 jupyter==1.0.0
