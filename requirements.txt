@@ -27,7 +27,7 @@ gast==0.2.2
 grpcio==1.19.0
 h5py==2.9.0
 hmmlearn==0.2.3
-html5lib==0.9999999
+html5lib==0.999999999
 idna==2.8
 ipykernel==4.6.1
 ipython==5.5.0
