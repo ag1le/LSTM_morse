@@ -60,7 +60,7 @@ pbr==3.1.1
 pexpect==4.2.1
 pickleshare==0.7.4
 prompt-toolkit==1.0.15
-protobuf==3.7.0
+protobuf==3.18.3
 ptyprocess==0.5.2
 pyAudioAnalysis==0.3.0
 pycparser==2.19
